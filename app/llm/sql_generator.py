@@ -1,4 +1,5 @@
 ﻿import os
+import re
 
 from dotenv import load_dotenv
 from google import genai
@@ -6,6 +7,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from app.db.schema_context import get_schema_context
+from app.metrics import BUSINESS_DEFINITIONS
 
 load_dotenv(override=True)
 
@@ -22,16 +24,34 @@ client = genai.Client(
 )
 
 
-def generate_sql(question: str) -> str:
-    """Convert a business question into PostgreSQL SQL."""
+STRICT_SQL_RULES = """STRICT SQL RULES:
+- PostgreSQL syntax only.
+- Generate only one SELECT or read-only WITH query.
+- Never generate data modification or schema modification statements.
+- Never invent tables or columns.
+- Query only the tables listed in the schema above.
+- Return SQL only, without Markdown fences or explanations."""
 
-    if not question or not question.strip():
-        raise ValueError("Please provide a business question.")
 
-    print("Loading database schema...", flush=True)
-    schema = get_schema_context()
+def clean_sql(raw_text: str) -> str:
+    """Remove Markdown fences the model sometimes adds despite instructions."""
 
-    prompt = f"""
+    text = (raw_text or "").strip()
+
+    fenced = re.match(
+        r"^```(?:sql|postgresql|postgres)?\s*(.*?)\s*```$",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    if fenced:
+        text = fenced.group(1).strip()
+
+    return text
+
+
+def build_prompt(question: str, schema: str) -> str:
+    return f"""
 You are a senior PostgreSQL developer building an AI data analyst.
 
 Convert the user's business question into one accurate PostgreSQL query.
@@ -39,48 +59,49 @@ Convert the user's business question into one accurate PostgreSQL query.
 DATABASE SCHEMA:
 {schema}
 
-BUSINESS DEFINITIONS FOR THIS OLIST DATASET:
+{BUSINESS_DEFINITIONS}
 
-1. SALES AND REVENUE:
-   - By default, calculate completed sales using delivered orders only.
-   - Join orders to order_items using order_id.
-   - Filter using orders.order_status = 'delivered'.
-   - Product sales revenue means SUM(order_items.price).
-   - Do not include freight unless the user explicitly asks for it.
-   - Do not describe revenue as profit.
-
-2. PRODUCT CATEGORIES:
-   - Join order_items to products using product_id.
-   - Use category_translation to obtain English category names.
-   - Join products.product_category_name to
-     category_translation.product_category_name.
-   - Use LEFT JOIN so untranslated categories are not discarded.
-   - Display COALESCE(
-       category_translation.product_category_name_english,
-       products.product_category_name
-     ) as the category name.
-
-3. ORDER COUNTS:
-   - Use COUNT(DISTINCT orders.order_id) when counting orders.
-   - Do not confuse order items, payment records and unique orders.
-
-4. GENERAL:
-   - Follow the actual schema and foreign keys.
-   - Avoid duplicate counting caused by one-to-many joins.
-   - Use meaningful column aliases.
-   - Use appropriate GROUP BY and ORDER BY clauses.
-   - Add LIMIT 100 for detail-row queries when appropriate.
-
-STRICT SQL RULES:
-- PostgreSQL syntax only.
-- Generate only one SELECT or read-only WITH query.
-- Never generate data modification or schema modification statements.
-- Never invent tables or columns.
-- Return SQL only, without Markdown fences or explanations.
+{STRICT_SQL_RULES}
 
 USER QUESTION:
 {question}
 """
+
+
+def build_repair_prompt(
+    question: str,
+    schema: str,
+    failed_sql: str,
+    error_message: str,
+) -> str:
+    return f"""
+You are a senior PostgreSQL developer building an AI data analyst.
+
+A query you wrote for the question below failed. Fix it and return a
+corrected PostgreSQL query that still answers the question.
+
+DATABASE SCHEMA:
+{schema}
+
+{BUSINESS_DEFINITIONS}
+
+{STRICT_SQL_RULES}
+
+USER QUESTION:
+{question}
+
+FAILED SQL:
+{failed_sql}
+
+ERROR MESSAGE:
+{error_message}
+
+Return only the corrected SQL.
+"""
+
+
+def _call_model(prompt: str) -> str:
+    """Send a prompt to Gemini, falling back to a second model on API errors."""
 
     models_to_try = list(dict.fromkeys([
         PRIMARY_MODEL,
@@ -98,7 +119,7 @@ USER QUESTION:
                 contents=prompt
             )
 
-            sql = (response.text or "").strip()
+            sql = clean_sql(response.text)
 
             if not sql:
                 raise ValueError(
@@ -122,6 +143,28 @@ USER QUESTION:
     raise RuntimeError(
         "Gemini models are currently unavailable. "
         "Please try again later.\n" + "\n".join(errors)
+    )
+
+
+def generate_sql(question: str) -> str:
+    """Convert a business question into PostgreSQL SQL."""
+
+    if not question or not question.strip():
+        raise ValueError("Please provide a business question.")
+
+    print("Loading database schema...", flush=True)
+    schema = get_schema_context()
+
+    return _call_model(build_prompt(question, schema))
+
+
+def repair_sql(question: str, failed_sql: str, error_message: str) -> str:
+    """Ask the model to fix a query that was rejected or failed to run."""
+
+    schema = get_schema_context()
+
+    return _call_model(
+        build_repair_prompt(question, schema, failed_sql, error_message)
     )
 
 

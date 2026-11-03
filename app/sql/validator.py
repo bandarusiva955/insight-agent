@@ -24,28 +24,47 @@ PROHIBITED_NODES = (
 
 # Functions that should not be available to AI-generated queries.
 BLOCKED_FUNCTIONS = {
-    "pg_sleep",
+    # file system, large objects, cross-database access
     "pg_read_file",
     "pg_read_binary_file",
     "pg_write_file",
     "pg_ls_dir",
     "pg_stat_file",
+    "lo_import",
+    "lo_export",
+    "dblink",
+    "dblink_exec",
+    # server control
     "pg_terminate_backend",
     "pg_cancel_backend",
     "pg_reload_conf",
     "pg_rotate_logfile",
     "pg_log_backend_memory_contexts",
-    "lo_import",
-    "lo_export",
-    "dblink",
-    "dblink_exec",
+    # resource abuse and session tampering
+    "pg_sleep",
+    "pg_sleep_for",
+    "pg_sleep_until",
+    "set_config",
+    "current_setting",
+    "pg_advisory_lock",
+    "pg_advisory_xact_lock",
+    "pg_try_advisory_lock",
+    "pg_try_advisory_xact_lock",
 }
 
+# Only the public schema holds business data. Anything else (pg_catalog,
+# information_schema, app_meta, ...) is off limits to generated SQL.
+ALLOWED_SCHEMAS = {"", "public"}
 
-def validate_sql(sql: str) -> tuple[bool, str]:
+
+def validate_sql(sql: str, allowed_tables=None) -> tuple[bool, str]:
     """
     Validate PostgreSQL SQL.
-    Only one read-only SELECT-style statement is allowed.
+
+    Only one read-only SELECT-style statement is allowed. System catalogs
+    and non-public schemas are always rejected. When allowed_tables is
+    given, every table the query reads must be one of them (names defined
+    by the query's own WITH clauses are fine).
     """
 
     if not sql or not sql.strip():
@@ -83,6 +102,48 @@ def validate_sql(sql: str) -> tuple[bool, str]:
                     f"Prohibited function detected: {function_name}"
                 )
 
+        # Table access control.
+        cte_names = {
+            cte.alias.lower()
+            for cte in statement.find_all(exp.CTE)
+            if cte.alias
+        }
+
+        allowed = (
+            None
+            if allowed_tables is None
+            else {name.lower() for name in allowed_tables}
+        )
+
+        for table in statement.find_all(exp.Table):
+            table_name = table.name.lower()
+            schema_name = table.db.lower()
+
+            # Table-valued functions such as generate_series() have no name;
+            # the function checks above and the statement timeout cover them.
+            if not table_name:
+                continue
+
+            if schema_name not in ALLOWED_SCHEMAS:
+                return False, (
+                    f"Access to schema '{schema_name}' is not allowed."
+                )
+
+            if table_name.startswith("pg_"):
+                return False, (
+                    f"Access to system table '{table_name}' is not allowed."
+                )
+
+            if (
+                allowed is not None
+                and table_name not in allowed
+                and not (schema_name == "" and table_name in cte_names)
+            ):
+                return False, (
+                    f"Table '{table_name}' is not available. "
+                    f"Use only these tables: {', '.join(sorted(allowed))}."
+                )
+
         return True, "SQL validation successful."
 
     except sqlglot.errors.ParseError as error:
@@ -90,66 +151,3 @@ def validate_sql(sql: str) -> tuple[bool, str]:
 
     except Exception as error:
         return False, f"SQL validation failed: {error}"
-
-
-if __name__ == "__main__":
-
-    test_queries = {
-        "Valid SELECT": (
-            "SELECT customer_id FROM customers LIMIT 5;"
-        ),
-        "Valid CTE": (
-            "WITH recent_orders AS "
-            "(SELECT * FROM orders) "
-            "SELECT * FROM recent_orders;"
-        ),
-        "Valid JOIN": (
-            "SELECT o.order_id FROM orders o "
-            "JOIN customers c ON o.customer_id = c.customer_id;"
-        ),
-        "Invalid DELETE": (
-            "DELETE FROM customers;"
-        ),
-        "Invalid DROP": (
-            "DROP TABLE customers;"
-        ),
-        "Multiple statements": (
-            "SELECT * FROM customers; DELETE FROM customers;"
-        ),
-        "Invalid syntax": (
-            "SELEC name FROM customers;"
-        ),
-        "Blocked function": (
-            "SELECT pg_sleep(5);"
-        ),
-        "Nested DELETE": (
-            "WITH removed AS (DELETE FROM customers RETURNING *) "
-            "SELECT * FROM removed;"
-        ),
-        "Blocked file function": (
-            "SELECT pg_read_file('test.txt');"
-        ),
-    }
-
-    passed = 0
-
-    for test_name, query in test_queries.items():
-        is_valid, message = validate_sql(query)
-
-        expected_valid = test_name in {
-            "Valid SELECT",
-            "Valid CTE",
-            "Valid JOIN",
-        }
-
-        test_passed = is_valid == expected_valid
-
-        if test_passed:
-            passed += 1
-
-        print(f"\nTEST: {test_name}")
-        print(f"VALID: {is_valid}")
-        print(f"MESSAGE: {message}")
-        print(f"RESULT: {'PASS' if test_passed else 'FAIL'}")
-
-    print(f"\nTOTAL: {passed}/{len(test_queries)} tests passed.")

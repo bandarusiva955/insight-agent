@@ -1,6 +1,8 @@
 ﻿import streamlit as st
 
-from app.pipeline import run_pipeline
+from app.metrics import METRIC_NOTE
+from app.pipeline import run_pipeline_detailed
+from app.ui.formatting import style_results
 
 
 st.set_page_config(
@@ -115,13 +117,15 @@ if run_button:
             "Analyzing your question and generating SQL..."
         ):
             try:
-                generated_sql, dataframe = run_pipeline(question)
+                result = run_pipeline_detailed(question)
 
                 st.session_state.query_history.append(
                     {
                         "question": question,
-                        "sql": generated_sql,
-                        "results": dataframe,
+                        "sql": result.sql,
+                        "results": result.dataframe,
+                        "attempts": result.attempts,
+                        "latency_ms": result.latency_ms,
                     }
                 )
 
@@ -140,6 +144,17 @@ if st.session_state.query_history:
 
     st.code(latest["sql"], language="sql")
 
+    st.caption(METRIC_NOTE)
+
+    if latest.get("attempts", 1) > 1:
+        st.caption(
+            f"The first SQL attempt failed, so the query was automatically "
+            f"corrected (attempt {latest['attempts']})."
+        )
+
+    if latest.get("latency_ms") is not None:
+        st.caption(f"Completed in {latest['latency_ms'] / 1000:.1f}s.")
+
     dataframe = latest["results"]
 
     st.markdown("### Query Results")
@@ -149,7 +164,7 @@ if st.session_state.query_history:
 
     else:
         st.dataframe(
-            dataframe,
+            style_results(dataframe),
             use_container_width=True,
             hide_index=True,
         )

@@ -1,8 +1,19 @@
-﻿from sqlalchemy import inspect
+﻿from functools import lru_cache
+
+from sqlalchemy import inspect
+
 from app.db.connection import engine
 
 
-def get_schema_context():
+@lru_cache(maxsize=1)
+def get_schema_context() -> str:
+    """
+    Describe the public schema (tables, columns, keys) for the LLM prompt.
+
+    The result is cached for the life of the process: the schema does not
+    change between questions, and inspecting it on every question added
+    latency. Call clear_schema_cache() after loading or altering tables.
+    """
     inspector = inspect(engine)
     schema_details = []
 
@@ -52,6 +63,20 @@ def get_schema_context():
             )
 
     return "\n".join(schema_details)
+
+
+@lru_cache(maxsize=1)
+def get_allowed_tables() -> frozenset:
+    """Tables the AI-generated SQL is allowed to read (public schema only)."""
+    inspector = inspect(engine)
+    return frozenset(
+        name.lower() for name in inspector.get_table_names(schema="public")
+    )
+
+
+def clear_schema_cache() -> None:
+    get_schema_context.cache_clear()
+    get_allowed_tables.cache_clear()
 
 
 if __name__ == "__main__":

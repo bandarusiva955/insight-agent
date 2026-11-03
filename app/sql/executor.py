@@ -1,7 +1,8 @@
 ﻿import pandas as pd
 from sqlalchemy import text
 
-from app.db.connection import engine
+from app.db.connection import query_engine
+from app.db.schema_context import get_allowed_tables
 from app.sql.validator import validate_sql
 
 
@@ -13,14 +14,16 @@ def execute_sql(sql: str) -> pd.DataFrame:
 
     print("Validating SQL...", flush=True)
 
-    is_valid, message = validate_sql(sql)
+    is_valid, message = validate_sql(
+        sql, allowed_tables=get_allowed_tables()
+    )
 
     if not is_valid:
         raise ValueError(f"SQL rejected: {message}")
 
     print("SQL validation successful.", flush=True)
 
-    with engine.connect() as connection:
+    with query_engine.connect() as connection:
         with connection.begin():
             connection.execute(text("SET TRANSACTION READ ONLY"))
             connection.execute(text("SET LOCAL statement_timeout = '10s'"))
