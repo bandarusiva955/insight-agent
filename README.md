@@ -88,8 +88,8 @@ python app/db/load_data.py
 ### Recommended: read-only database role
 
 ```powershell
-# edit the password in the file first
-Get-Content app/db/create_readonly_role.sql | docker exec -i insightagent-db psql -U <POSTGRES_USER> -d <POSTGRES_DB>
+# letters and digits only; the password is passed in, never stored in the file
+Get-Content app/db/create_readonly_role.sql | docker exec -i insightagent-db psql -U <POSTGRES_USER> -d <POSTGRES_DB> -v ro_password=YourStrongPassword123
 ```
 
 Then set `POSTGRES_READONLY_USER` and `POSTGRES_READONLY_PASSWORD` in `.env`.
