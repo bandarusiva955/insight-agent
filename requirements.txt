@@ -1,0 +1,8 @@
+streamlit
+google-genai>=1.0,<3.0
+sqlglot
+plotly
+pandas
+sqlalchemy
+psycopg[binary]
+python-dotenv
