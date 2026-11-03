@@ -1,4 +1,4 @@
-streamlit
+﻿streamlit
 google-genai>=1.0,<3.0
 sqlglot
 plotly
@@ -6,3 +6,5 @@ pandas
 sqlalchemy
 psycopg[binary]
 python-dotenv
+pydantic>=2.7,<3.0
+pydantic-settings>=2.2,<3.0
