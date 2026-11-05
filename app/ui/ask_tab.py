@@ -11,7 +11,11 @@ from app.ui.formatting import style_results
 HISTORY_TURNS_SENT = 3
 
 
-def render() -> None:
+def render(workspace=None, state_key: str = "query_history", key_prefix: str = "") -> None:
+    """Ask tab. With a workspace, questions run only on the uploaded data."""
+
+    st.session_state.setdefault(state_key, [])
+
     st.markdown(
         '<h3 class="section-title">Ask your data a question</h3>',
         unsafe_allow_html=True,
@@ -19,21 +23,27 @@ def render() -> None:
 
     question = st.text_area(
         "Enter your business question",
-        placeholder="Example: Show me the top 10 product categories by delivered sales.",
+        placeholder=(
+            "Example: Which region has the highest total amount?"
+            if workspace is not None
+            else "Example: Show me the top 10 product categories by delivered sales."
+        ),
         height=110,
+        key=f"{key_prefix}question",
     )
 
     use_context = st.toggle(
         "Use my previous questions as context (for follow-ups like "
         "\"now break that down by state\")",
         value=True,
-        key="use_context",
+        key=f"{key_prefix}use_context",
     )
 
     run_button = st.button(
         "🚀 Generate Analysis",
         type="primary",
-        use_container_width=True,
+        width="stretch",
+        key=f"{key_prefix}run",
     )
 
     budget = budget_for_session()
@@ -53,7 +63,7 @@ def render() -> None:
             history = (
                 [
                     {"question": turn["question"], "sql": turn["sql"]}
-                    for turn in st.session_state.query_history[
+                    for turn in st.session_state[state_key][
                         -HISTORY_TURNS_SENT:
                     ]
                 ]
@@ -65,9 +75,11 @@ def render() -> None:
                 "Analyzing your question and generating SQL..."
             ):
                 try:
-                    result = run_pipeline_detailed(question, history=history)
+                    result = run_pipeline_detailed(
+                        question, history=history, workspace=workspace
+                    )
 
-                    st.session_state.query_history.append(
+                    st.session_state[state_key].append(
                         {
                             "question": question,
                             "sql": result.sql,
@@ -84,16 +96,17 @@ def render() -> None:
                     st.error(f"Analysis failed: {error}")
 
 
-    if st.session_state.query_history:
+    if st.session_state[state_key]:
 
-        latest = st.session_state.query_history[-1]
+        latest = st.session_state[state_key][-1]
 
         st.divider()
         st.markdown("### Generated SQL")
 
         st.code(latest["sql"], language="sql")
 
-        st.caption(METRIC_NOTE)
+        if workspace is None:
+            st.caption(METRIC_NOTE)
 
         if latest.get("attempts", 1) > 1:
             st.caption(
@@ -118,8 +131,8 @@ def render() -> None:
 
         else:
             st.dataframe(
-                style_results(dataframe),
-                use_container_width=True,
+                style_results(dataframe, currency=workspace is None),
+                width="stretch",
                 hide_index=True,
             )
 
@@ -137,7 +150,7 @@ def render() -> None:
 
                     summary_key = f"summary::{latest['question']}::{len(dataframe)}"
 
-                    if st.button("Write summary", key="write_summary"):
+                    if st.button("Write summary", key=f"{key_prefix}write_summary"):
                         with st.spinner("Summarising..."):
                             st.session_state[summary_key] = summarize_results(
                                 latest["question"], dataframe
@@ -309,7 +322,7 @@ def render() -> None:
 
                 st.plotly_chart(
                     figure,
-                    use_container_width=True
+                    width="stretch"
                 )
 
                 # Deterministic business insights from returned query results.
@@ -381,13 +394,13 @@ def render() -> None:
 
         with st.expander("Previous questions"):
             for index, item in enumerate(
-                reversed(st.session_state.query_history),
+                reversed(st.session_state[state_key]),
                 start=1,
             ):
                 st.markdown(f"**{index}. {item['question']}**")
 
-            if st.button("Clear conversation", key="clear_history"):
-                st.session_state.query_history = []
+            if st.button("Clear conversation", key=f"{key_prefix}clear_history"):
+                st.session_state[state_key] = []
                 st.rerun()
 
 

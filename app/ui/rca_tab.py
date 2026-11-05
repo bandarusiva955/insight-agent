@@ -70,11 +70,11 @@ def render():
 
     with st.expander("Driver tables"):
         st.markdown("**Categories**")
-        st.dataframe(report.categories, use_container_width=True, hide_index=True)
+        st.dataframe(report.categories, width="stretch", hide_index=True)
         st.markdown("**States**")
-        st.dataframe(report.states, use_container_width=True, hide_index=True)
+        st.dataframe(report.states, width="stretch", hide_index=True)
         st.markdown("**Operations**")
-        st.dataframe(report.operations, use_container_width=True, hide_index=True)
+        st.dataframe(report.operations, width="stretch", hide_index=True)
 
     if narration_allowed():
         if st.button("Explain in plain English (uses Gemini)"):

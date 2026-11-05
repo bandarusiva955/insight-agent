@@ -40,7 +40,7 @@ def _anomalies():
                        name="rolling baseline", line=dict(dash="dot"))
     figure.add_scatter(x=hits["day"], y=hits[metric], mode="markers",
                        name="anomaly", marker=dict(size=10, color="red"))
-    st.plotly_chart(figure, use_container_width=True)
+    st.plotly_chart(figure, width="stretch")
 
     lines = describe_anomalies(flagged, metric, metric.replace("_", " "))
 
@@ -79,7 +79,7 @@ def _forecast():
                        line=dict(width=0), fill="tonexty", name="range")
     figure.add_scatter(x=forecast["month"], y=forecast["forecast"],
                        mode="lines+markers", name="forecast", line=dict(dash="dash"))
-    st.plotly_chart(figure, use_container_width=True)
+    st.plotly_chart(figure, width="stretch")
 
     st.caption(result.note)
 

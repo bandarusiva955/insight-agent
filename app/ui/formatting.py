@@ -23,10 +23,11 @@ def _is_numeric(series: pd.Series) -> bool:
     )
 
 
-def style_results(dataframe: pd.DataFrame):
+def style_results(dataframe: pd.DataFrame, currency: bool = True):
     """
     Return a pandas Styler: money columns as R$ 1,234.56, other numeric
-    columns with thousands separators. Formatting is display-only, so the
+    columns with thousands separators. currency=False skips the R$ prefix
+    (uploaded data has no known currency). Formatting is display-only, so the
     underlying values still sort and chart correctly.
     """
 
@@ -39,7 +40,7 @@ def style_results(dataframe: pd.DataFrame):
 
         display[column] = pd.to_numeric(display[column], errors="coerce")
 
-        if is_money_column(column):
+        if currency and is_money_column(column):
             formats[column] = "R$ {:,.2f}"
         elif pd.api.types.is_integer_dtype(display[column]):
             formats[column] = "{:,.0f}"

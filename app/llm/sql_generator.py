@@ -69,7 +69,21 @@ def _history_section(history_block: str) -> str:
     return FOLLOW_UP_RULES.format(history=history_block) + "\n\n"
 
 
-def build_prompt(question: str, schema: str, history_block: str = "") -> str:
+WORKSPACE_DEFINITIONS = """DATA NOTES:
+- The tables come from a file the user uploaded; use only the columns listed.
+- Column types shown are the cleaned types. Match text values exactly as shown
+  in the examples (case matters); use ILIKE for free-text matching.
+- Never prefix table names with a schema.
+- For rates, shares and averages, divide using NULLIF to avoid division by zero.
+- Use clear column aliases in the output."""
+
+
+def build_prompt(
+    question: str,
+    schema: str,
+    history_block: str = "",
+    definitions: str | None = None,
+) -> str:
     return f"""
 You are a senior PostgreSQL developer building an AI data analyst.
 
@@ -78,7 +92,7 @@ Convert the user's business question into one accurate PostgreSQL query.
 DATABASE SCHEMA:
 {schema}
 
-{BUSINESS_DEFINITIONS}
+{BUSINESS_DEFINITIONS if definitions is None else definitions}
 
 {STRICT_SQL_RULES}
 
@@ -93,6 +107,7 @@ def build_repair_prompt(
     failed_sql: str,
     error_message: str,
     history_block: str = "",
+    definitions: str | None = None,
 ) -> str:
     return f"""
 You are a senior PostgreSQL developer building an AI data analyst.
@@ -103,7 +118,7 @@ corrected PostgreSQL query that still answers the question.
 DATABASE SCHEMA:
 {schema}
 
-{BUSINESS_DEFINITIONS}
+{BUSINESS_DEFINITIONS if definitions is None else definitions}
 
 {STRICT_SQL_RULES}
 
@@ -166,7 +181,12 @@ def _call_model(prompt: str) -> str:
     )
 
 
-def generate_sql(question: str, history: list | None = None) -> str:
+def generate_sql(
+    question: str,
+    history: list | None = None,
+    schema: str | None = None,
+    definitions: str | None = None,
+) -> str:
     """
     Convert a business question into PostgreSQL SQL.
 
@@ -177,11 +197,14 @@ def generate_sql(question: str, history: list | None = None) -> str:
     if not question or not question.strip():
         raise ValueError("Please provide a business question.")
 
-    print("Loading database schema...", flush=True)
-    schema = get_schema_context()
+    if schema is None:
+        print("Loading database schema...", flush=True)
+        schema = get_schema_context()
 
     return _call_model(
-        build_prompt(question, schema, build_history_block(history or []))
+        build_prompt(
+            question, schema, build_history_block(history or []), definitions
+        )
     )
 
 
@@ -190,10 +213,13 @@ def repair_sql(
     failed_sql: str,
     error_message: str,
     history: list | None = None,
+    schema: str | None = None,
+    definitions: str | None = None,
 ) -> str:
     """Ask the model to fix a query that was rejected or failed to run."""
 
-    schema = get_schema_context()
+    if schema is None:
+        schema = get_schema_context()
 
     return _call_model(
         build_repair_prompt(
@@ -202,6 +228,7 @@ def repair_sql(
             failed_sql,
             error_message,
             build_history_block(history or []),
+            definitions,
         )
     )
 

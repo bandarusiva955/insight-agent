@@ -28,11 +28,11 @@ def render():
         )
 
         st.markdown("**Recent questions**")
-        st.dataframe(recent_queries(), use_container_width=True, hide_index=True)
+        st.dataframe(recent_queries(), width="stretch", hide_index=True)
 
     st.markdown("**Recent alerts**")
     alerts = recent_alerts()
     if len(alerts):
-        st.dataframe(alerts, use_container_width=True, hide_index=True)
+        st.dataframe(alerts, width="stretch", hide_index=True)
     else:
         st.caption("No alerts yet.")

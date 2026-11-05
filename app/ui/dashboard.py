@@ -6,7 +6,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st  # noqa: E402
 
-from app.ui import ask_tab, forecast_tab, kpi_tab, live_tab, rca_tab, usage_tab  # noqa: E402
+from app.ui import (  # noqa: E402
+    ask_tab, forecast_tab, kpi_tab, live_tab, rca_tab, usage_tab, workspace_tab,
+)
 from app.ui.access import require_access  # noqa: E402
 
 st.set_page_config(
@@ -60,13 +62,13 @@ st.markdown(
 )
 
 tabs = st.tabs(
-    ["💬 Ask", "📈 KPI dashboard", "🔎 Root cause", "🔮 Forecast & anomalies",
+    ["💬 Ask", "📁 My data", "📈 KPI dashboard", "🔎 Root cause", "🔮 Forecast & anomalies",
      "🚨 Live monitor", "🧾 Usage"]
 )
 
 for tab, module in zip(
     tabs,
-    [ask_tab, kpi_tab, rca_tab, forecast_tab, live_tab, usage_tab],
+    [ask_tab, workspace_tab, kpi_tab, rca_tab, forecast_tab, live_tab, usage_tab],
 ):
     with tab:
         module.render()

@@ -86,7 +86,7 @@ def render():
     if len(trend):
         figure = px.line(trend, x="month", y="revenue", markers=True,
                          title="Monthly revenue (R$)")
-        st.plotly_chart(figure, use_container_width=True)
+        st.plotly_chart(figure, width="stretch")
 
     left, right = st.columns(2)
 
@@ -97,7 +97,7 @@ def render():
             x="revenue", y="category", orientation="h",
             title="Top categories by revenue (R$)",
         )
-        left.plotly_chart(figure, use_container_width=True)
+        left.plotly_chart(figure, width="stretch")
 
     states_frame = cache.state_breakdown(filters)
     if len(states_frame):
@@ -105,10 +105,10 @@ def render():
             states_frame.sort_values("revenue", ascending=False).head(10),
             x="state", y="revenue", title="Top states by revenue (R$)",
         )
-        right.plotly_chart(figure, use_container_width=True)
+        right.plotly_chart(figure, width="stretch")
 
     payments = cache.payment_mix(filters)
     if len(payments):
         figure = px.pie(payments, names=payments.columns[0],
                         values="payment_value", title="Payment mix")
-        st.plotly_chart(figure, use_container_width=True)
+        st.plotly_chart(figure, width="stretch")

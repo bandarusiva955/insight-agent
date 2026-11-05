@@ -1,8 +1,9 @@
-streamlit
+streamlit>=1.50
 google-genai>=1.0,<3.0
 sqlglot
 plotly
-pandas
+pandas>=2.1
 sqlalchemy
 psycopg[binary]
 python-dotenv
+openpyxl

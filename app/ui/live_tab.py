@@ -70,10 +70,10 @@ def _monitor():
     if len(series):
         st.plotly_chart(px.bar(series, x="minute", y="orders",
                                title="Orders per minute"),
-                        use_container_width=True)
+                        width="stretch")
 
     st.markdown("**Latest orders**")
-    st.dataframe(recent_orders(), use_container_width=True, hide_index=True)
+    st.dataframe(recent_orders(), width="stretch", hide_index=True)
 
 
 def render():

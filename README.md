@@ -13,6 +13,7 @@ Built on the public [Olist Brazilian E-commerce dataset](https://www.kaggle.com/
 | Tab | What it does |
 |---|---|
 | **Ask** | Text-to-SQL with Gemini, grounded in the live schema and explicit business definitions. Follow-up questions ("now by state") use your last 3 questions as context. Optional AI summary of the result. |
+| **My data** | **Bring your own data.** Upload a CSV or Excel file: it is cleaned automatically (snake_case names, empty rows/columns, whitespace, placeholders like `N/A`, number/date/boolean types, case variants, exact duplicates) with a full change log. You get an auto-generated dashboard, plain-English findings, questions answered by text-to-SQL, a cleaned-CSV download and a printable HTML analyst report. Outliers and missing values are flagged, never silently deleted or filled. |
 | **KPI dashboard** | Revenue, orders, AOV, delivery time, on-time rate, cancel rate with date / category / state filters and deltas vs the previous period. |
 | **Root cause** | Pick a month; compares it with the previous month and attributes the change to categories, states and operations (volume vs value effect). Findings are computed deterministically; AI narration is optional. |
 | **Forecast & anomalies** | Robust (median/MAD) anomaly detection with adjustable sensitivity; Holt-trend revenue forecast that is **backtested against a naive baseline** and warns when it does not beat it. |
@@ -55,6 +56,7 @@ Results, chart, optional summary          Audit log
 
 ```
 app/
+  workspace/  ingest, cleaning, profile, store (private schema), dashboard, report
   llm/        sql_generator (prompts, Gemini), narrator (opt-in summaries)
   sql/        validator (guardrails), executor (read-only)
   analytics/  kpi, anomaly, forecast, rca
@@ -148,7 +150,14 @@ figure goes in this section only after you run it and commit `latest.md`.
 
 ## Known limitations
 
-- Single dataset; no CSV/Excel upload yet.
+- Uploads: CSV/TSV/.xlsx up to 25 MB / 200k rows / 100 columns. Auto-cleaning
+  makes guesses (for example ambiguous `03/04/2024` dates are read month-first and
+  the log says so); review the cleaning report before trusting results. Numbers
+  written European-style (`1.234,56`) are not converted. The Root cause, KPI,
+  Forecast and Live tabs still use the sample Olist data only.
+- Uploaded data lives in a private temporary schema (default 6 h TTL, set
+  `WORKSPACE_TTL_HOURS`) but there are no user accounts: it is tied to the
+  browser session.
 - No user accounts or per-user data separation; the password gate is a shared
   secret, not authentication.
 - The live stream is simulated, not connected to a real order system.
@@ -162,6 +171,8 @@ figure goes in this section only after you run it and commit `latest.md`.
 - [x] KPI dashboard, follow-up memory, root-cause analysis, anomalies, forecast
 - [x] Live monitor with alerts, usage tab, 50-question benchmark, Docker, CI
 - [ ] Publish measured benchmark results
-- [ ] CSV/Excel upload with per-workspace data
+- [x] CSV/Excel upload, auto-cleaning, auto-dashboard, report
+- [ ] Persistent per-user workspaces (needs accounts)
+- [ ] Forecast / anomalies / root cause on uploaded data
 - [ ] Authentication and roles
 - [ ] Editable metric dictionary
