@@ -47,6 +47,8 @@ def _is_retryable(error: Exception) -> bool:
 def run_pipeline_detailed(
     question: str,
     max_attempts: int = MAX_ATTEMPTS,
+    history: list | None = None,
+    audit: bool = True,
 ) -> PipelineResult:
     """
     Natural language -> SQL -> validated, read-only execution.
@@ -54,6 +56,9 @@ def run_pipeline_detailed(
     If the SQL is rejected by the validator or fails in PostgreSQL, the error
     is sent back to the model to repair, up to max_attempts total attempts.
     Every question is written to the audit log.
+
+    history: earlier turns ({"question", "sql"} dicts) for follow-up questions.
+    audit: set False for evaluation runs so they do not fill the audit log.
     """
 
     if not question or not question.strip():
@@ -68,7 +73,7 @@ def run_pipeline_detailed(
 
     try:
         print("\n1. Generating SQL with Gemini...", flush=True)
-        sql = generate_sql(question)
+        sql = generate_sql(question, history=history) if history else generate_sql(question)
 
         for attempt in range(1, max_attempts + 1):
             print(f"\n2. Generated SQL (attempt {attempt}):")
@@ -90,7 +95,11 @@ def run_pipeline_detailed(
                     "Asking the model to correct the SQL...",
                     flush=True,
                 )
-                sql = repair_sql(question, sql, reason)
+                sql = (
+                    repair_sql(question, sql, reason, history=history)
+                    if history
+                    else repair_sql(question, sql, reason)
+                )
                 continue
 
             print("\n4. Pipeline completed successfully.", flush=True)
@@ -103,26 +112,28 @@ def run_pipeline_detailed(
                 corrections=corrections,
             )
 
-            log_query(
-                question=question,
-                generated_sql=sql,
-                status="success" if attempt == 1 else "corrected",
-                attempts=attempt,
-                latency_ms=result.latency_ms,
-                row_count=len(dataframe),
-            )
+            if audit:
+                log_query(
+                    question=question,
+                    generated_sql=sql,
+                    status="success" if attempt == 1 else "corrected",
+                    attempts=attempt,
+                    latency_ms=result.latency_ms,
+                    row_count=len(dataframe),
+                )
 
             return result
 
     except Exception as error:
-        log_query(
-            question=question,
-            generated_sql=sql,
-            status="failed",
-            attempts=len(corrections) + 1,
-            latency_ms=elapsed_ms(),
-            error=_error_text(error),
-        )
+        if audit:
+            log_query(
+                question=question,
+                generated_sql=sql,
+                status="failed",
+                attempts=len(corrections) + 1,
+                latency_ms=elapsed_ms(),
+                error=_error_text(error),
+            )
         raise
 
 

@@ -50,6 +50,12 @@ def _ensure_table() -> None:
     _table_ready = True
 
 
+def ensure_audit_table() -> None:
+    """Create app_meta.query_audit if needed (idempotent, cached per process)."""
+
+    _ensure_table()
+
+
 def log_query(
     question: str,
     generated_sql: str | None,

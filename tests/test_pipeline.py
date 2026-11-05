@@ -1,5 +1,7 @@
 ﻿import unittest
 
+import pytest
+
 from sqlalchemy import text
 
 from app.db.connection import engine
@@ -64,6 +66,7 @@ class TestSQLValidator(unittest.TestCase):
         self.assertFalse(valid)
 
 
+@pytest.mark.real_data
 class TestSQLExecutor(unittest.TestCase):
 
     def test_execute_read_only_query(self):
@@ -84,6 +87,7 @@ class TestSQLExecutor(unittest.TestCase):
             execute_sql("DELETE FROM customers;")
 
 
+@pytest.mark.real_data
 class TestDeliveredSalesBusinessLogic(unittest.TestCase):
 
     def test_reference_query_matches_expected_totals(self):

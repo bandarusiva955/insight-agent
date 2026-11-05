@@ -7,6 +7,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from app.db.schema_context import get_schema_context
+from app.memory import build_history_block
 from app.metrics import BUSINESS_DEFINITIONS
 
 load_dotenv(override=True)
@@ -50,7 +51,25 @@ def clean_sql(raw_text: str) -> str:
     return text
 
 
-def build_prompt(question: str, schema: str) -> str:
+FOLLOW_UP_RULES = """CONVERSATION CONTEXT (earlier questions in this session):
+{history}
+
+FOLLOW-UP RULES:
+- If the new question refers to earlier results (for example "that", "those",
+  "now by state", "same but for 2018"), build on the most relevant earlier SQL
+  and change only what the new question asks for.
+- If the new question is independent, ignore the conversation context.
+- The earlier SQL is context only. The STRICT SQL RULES still apply."""
+
+
+def _history_section(history_block: str) -> str:
+    if not history_block:
+        return ""
+
+    return FOLLOW_UP_RULES.format(history=history_block) + "\n\n"
+
+
+def build_prompt(question: str, schema: str, history_block: str = "") -> str:
     return f"""
 You are a senior PostgreSQL developer building an AI data analyst.
 
@@ -63,7 +82,7 @@ DATABASE SCHEMA:
 
 {STRICT_SQL_RULES}
 
-USER QUESTION:
+{_history_section(history_block)}USER QUESTION:
 {question}
 """
 
@@ -73,6 +92,7 @@ def build_repair_prompt(
     schema: str,
     failed_sql: str,
     error_message: str,
+    history_block: str = "",
 ) -> str:
     return f"""
 You are a senior PostgreSQL developer building an AI data analyst.
@@ -87,7 +107,7 @@ DATABASE SCHEMA:
 
 {STRICT_SQL_RULES}
 
-USER QUESTION:
+{_history_section(history_block)}USER QUESTION:
 {question}
 
 FAILED SQL:
@@ -146,8 +166,13 @@ def _call_model(prompt: str) -> str:
     )
 
 
-def generate_sql(question: str) -> str:
-    """Convert a business question into PostgreSQL SQL."""
+def generate_sql(question: str, history: list | None = None) -> str:
+    """
+    Convert a business question into PostgreSQL SQL.
+
+    history: optional earlier turns ({"question", "sql"} dicts) so follow-up
+    questions can build on previous queries.
+    """
 
     if not question or not question.strip():
         raise ValueError("Please provide a business question.")
@@ -155,16 +180,29 @@ def generate_sql(question: str) -> str:
     print("Loading database schema...", flush=True)
     schema = get_schema_context()
 
-    return _call_model(build_prompt(question, schema))
+    return _call_model(
+        build_prompt(question, schema, build_history_block(history or []))
+    )
 
 
-def repair_sql(question: str, failed_sql: str, error_message: str) -> str:
+def repair_sql(
+    question: str,
+    failed_sql: str,
+    error_message: str,
+    history: list | None = None,
+) -> str:
     """Ask the model to fix a query that was rejected or failed to run."""
 
     schema = get_schema_context()
 
     return _call_model(
-        build_repair_prompt(question, schema, failed_sql, error_message)
+        build_repair_prompt(
+            question,
+            schema,
+            failed_sql,
+            error_message,
+            build_history_block(history or []),
+        )
     )
 
 
