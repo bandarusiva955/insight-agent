@@ -1,66 +1,75 @@
 # InsightAgent: AI Data Analyst
 
-Ask business questions in plain English. InsightAgent turns them into safe,
-read-only PostgreSQL queries, runs them, and returns the SQL, a results table,
-an automatic chart and business insights.
+Ask business questions in plain English and get safe, read-only SQL, results,
+charts and explanations. Beyond Q&A it tracks KPIs, explains *why* revenue
+changed, flags anomalies, forecasts, and monitors a live order stream with
+alerts.
 
 Built on the public [Olist Brazilian E-commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
-(about 100k orders across 8 relational tables).
+(about 100k orders, 8 relational tables).
 
-> Status: working prototype, under active development. See the roadmap below
-> for what is and is not built yet.
+## Features
 
-## What it does today
+| Tab | What it does |
+|---|---|
+| **Ask** | Text-to-SQL with Gemini, grounded in the live schema and explicit business definitions. Follow-up questions ("now by state") use your last 3 questions as context. Optional AI summary of the result. |
+| **My data** | **Bring your own data.** Upload a CSV or Excel file: it is cleaned automatically (snake_case names, empty rows/columns, whitespace, placeholders like `N/A`, number/date/boolean types, case variants, exact duplicates) with a full change log. You get an auto-generated dashboard, plain-English findings, questions answered by text-to-SQL, a cleaned-CSV download and a printable HTML analyst report. Outliers and missing values are flagged, never silently deleted or filled. |
+| **KPI dashboard** | Revenue, orders, AOV, delivery time, on-time rate, cancel rate with date / category / state filters and deltas vs the previous period. |
+| **Root cause** | Pick a month; compares it with the previous month and attributes the change to categories, states and operations (volume vs value effect). Findings are computed deterministically; AI narration is optional. |
+| **Forecast & anomalies** | Robust (median/MAD) anomaly detection with adjustable sensitivity; Holt-trend revenue forecast that is **backtested against a naive baseline** and warns when it does not beat it. |
+| **Live monitor** | A simulated order stream (separate `live` schema) with threshold alerts, cooldown, and Telegram or console delivery. Trigger cancel spikes, delivery delays or traffic drops to watch alerts fire. |
+| **Usage** | Questions asked, answered rate, self-corrections, latency (avg / p95), recent alerts, from the audit log. |
 
-- **Text-to-SQL** with Gemini, grounded in the live database schema and explicit
-  business definitions (for example: sales = item price of delivered orders,
-  freight excluded).
-- **SQL guardrails** (sqlglot AST validation): one statement only, `SELECT`
-  and read-only `WITH` queries only, no DDL/DML, no system catalogs, no
-  non-public schemas, a table allow-list taken from the database, and a block
-  list of dangerous functions (`pg_sleep`, `pg_read_file`, `set_config`, ...).
-- **Defence in depth at execution time:** read-only transaction, 10 s statement
-  timeout, 3 s lock timeout, 1,000 row cap, and optional dedicated read-only
-  database role.
-- **Self-correction:** if the SQL is rejected or fails in PostgreSQL, the error
-  is sent back to the model to repair it (up to 3 attempts).
-- **Audit log:** every question, SQL, status, attempt count and latency is
-  stored in `app_meta.query_audit`.
-- **Streamlit UI:** generated SQL, formatted results (R$), automatic chart
-  selection and summary insights computed from the returned rows.
+### Safety and reliability
+
+- **SQL guardrails** (sqlglot AST): one statement, `SELECT` / read-only `WITH`
+  only, no DDL/DML, no system catalogs, no non-public schemas, a table
+  allow-list read from the database, a block list of dangerous functions.
+- **Defence in depth:** read-only transaction, 10 s statement timeout, 1,000 row
+  cap, optional dedicated read-only database role.
+- **Self-correction:** rejected or failing SQL is sent back to the model with the
+  error (up to 3 attempts).
+- **Audit log** of every question in `app_meta.query_audit`.
+- **Deployment controls:** optional shared password (`APP_PASSWORD`) and a
+  per-session question cap (`MAX_QUESTIONS_PER_SESSION`).
+- **Privacy:** SQL generation sends the schema and your question to Gemini.
+  Result rows or analysis facts are sent **only** if you click an AI summary /
+  narration button, and never when `PRIVACY_MODE=strict`.
 
 ## Architecture
 
 ```
-Question
+Question (+ last 3 turns)
    |
    v
-Schema context (cached)  +  business definitions (app/metrics.py)
+Schema context + business definitions  ->  Gemini  ->  SQL
    |
    v
-Gemini  ->  SQL
+Validator (sqlglot) --rejected--> error back to Gemini (max 3 attempts)
    |
    v
-Validator (sqlglot)  --rejected-->  error fed back to Gemini (max 3 attempts)
+Read-only execution (timeout, row cap) --DB error--> error back to Gemini
    |
    v
-Read-only execution (timeout, row cap)  --DB error-->  error fed back to Gemini
-   |
-   v
-Results + chart + insights        Audit log (app_meta.query_audit)
+Results, chart, optional summary          Audit log
 ```
 
 ```
 app/
-  llm/sql_generator.py   prompt building, Gemini calls, SQL repair
-  sql/validator.py       AST-based guardrails
-  sql/executor.py        read-only execution
-  db/                    connection, schema introspection, loaders, schema.sql
-  pipeline.py            generate -> validate -> execute -> repair loop
-  audit.py               audit log
-  metrics.py             business definitions shared by prompt and UI
-  ui/                    Streamlit dashboard and display helpers
-tests/                   unit tests (no DB/API key) and integration tests
+  workspace/  ingest, cleaning, profile, store (private schema), dashboard, report
+  llm/        sql_generator (prompts, Gemini), narrator (opt-in summaries)
+  sql/        validator (guardrails), executor (read-only)
+  analytics/  kpi, anomaly, forecast, rca
+  db/         connection, schema introspection, loaders, schema.sql, runner
+  ui/         dashboard (tabbed shell) + one module per tab, access control
+  live.py     simulator, windows, alert rules, dispatch
+  alerts.py   Telegram / console delivery
+  pipeline.py generate -> validate -> execute -> repair loop
+  audit.py, usage.py, memory.py, metrics.py
+evaluation/   50-question benchmark and runner
+scripts/      order_simulator.py (live stream from the terminal)
+tests/        unit + DB tests on deterministic synthetic data
+docs/         DEPLOYMENT.md
 ```
 
 ## Setup (Windows PowerShell)
@@ -74,27 +83,23 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-copy .env.example .env     # then edit .env with your values
-docker compose up -d       # starts PostgreSQL
+copy .env.example .env     # edit .env with your values
+docker compose up -d db    # starts PostgreSQL
 ```
 
-Download the Olist CSV files from Kaggle into `data/raw/` (they are not
-included in this repository), then load them:
+Download the Olist CSVs from Kaggle into `data/raw/` (not in this repo), then:
 
 ```powershell
 python app/db/load_data.py
 ```
 
-### Recommended: read-only database role
+Recommended read-only role (letters and digits only in the password):
 
 ```powershell
-# edit the password in the file first
-Get-Content app/db/create_readonly_role.sql | docker exec -i insightagent-db psql -U <POSTGRES_USER> -d <POSTGRES_DB>
+Get-Content app/db/create_readonly_role.sql | docker exec -i insightagent-db psql -U <POSTGRES_USER> -d <POSTGRES_DB> -v ro_password=YourStrongPassword123
 ```
 
-Then set `POSTGRES_READONLY_USER` and `POSTGRES_READONLY_PASSWORD` in `.env`.
-Without them the app still works, using the owner connection inside a
-read-only transaction.
+Then set `POSTGRES_READONLY_USER` / `POSTGRES_READONLY_PASSWORD` in `.env`.
 
 ## Run
 
@@ -102,45 +107,72 @@ read-only transaction.
 python -m streamlit run app/ui/dashboard.py
 ```
 
-Example questions:
+Optional: drive the live monitor from a terminal instead of the buttons:
 
-- Show me the top 10 product categories by delivered sales.
-- What is the monthly order trend?
-- Which payment method is used most frequently?
-- What is the average delivery time?
+```powershell
+python scripts/order_simulator.py --rate 3 --interval 2
+python scripts/order_simulator.py --incident cancel_spike --duration 60
+```
+
+Deploy for free (Neon + Streamlit Cloud): see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Tests
 
 ```powershell
-# Unit tests: no database or API key required
 $env:GEMINI_API_KEY="test-key"
-python -m pytest tests/test_validator_unit.py tests/test_pipeline_retry.py
-
-# Integration tests: need the running database and a real Gemini key
-python -m pytest tests/test_pipeline.py tests/test_sql_accuracy.py
+python -m pytest                       # unit tests; DB tests skip without a test DB
 ```
 
-## Security notes
+Database tests use deterministic synthetic Olist-shaped data with planted
+events (a category collapse, an order spike) so analytics are checked against
+known ground truth. They need a **separate** database whose name contains
+`test` (it is wiped on each run):
 
-- Secrets live in `.env` (git-ignored). Never commit it.
-- Only the database schema and business definitions are sent to the LLM, not
-  table rows.
-- Generated SQL can read only the public business tables.
-
-## Roadmap
-
-- [x] Text-to-SQL, guardrails, read-only execution, charts, insights
-- [x] Self-correction loop, audit log, read-only role support
-- [ ] KPI dashboard with filters
-- [ ] Follow-up question memory
-- [ ] CSV/Excel upload and per-workspace data
-- [ ] Metric dictionary editable in the UI
-- [ ] Root-cause analysis agent, anomaly detection, forecasting
-- [ ] Authentication, roles, usage limits
-- [ ] Evaluation benchmark (execution accuracy, latency, cost per query)
-- [ ] Public deployment
+```powershell
+$env:TEST_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/insightagent_test"
+python -m pytest
+```
 
 ## Evaluation
 
-A benchmark has not been run yet. Accuracy figures will be added here only
-after they are measured.
+A 50-question benchmark (aggregation, filtering, joins, time, ranking, ratios,
+multi-step) compares the **results** of Gemini's SQL with reference SQL.
+
+```powershell
+python -m evaluation.run_eval --dry-run     # checks reference queries only, no API calls
+python -m evaluation.run_eval --limit 10    # real run on a few questions
+python -m evaluation.run_eval               # full run, writes evaluation/results/latest.md
+```
+
+**No accuracy number is claimed here.** The benchmark has not been run
+against the real data and a live Gemini key in this repository's history; the
+figure goes in this section only after you run it and commit `latest.md`.
+
+## Known limitations
+
+- Uploads: CSV/TSV/.xlsx up to 25 MB / 200k rows / 100 columns. Auto-cleaning
+  makes guesses (for example ambiguous `03/04/2024` dates are read month-first and
+  the log says so); review the cleaning report before trusting results. Numbers
+  written European-style (`1.234,56`) are not converted. The Root cause, KPI,
+  Forecast and Live tabs still use the sample Olist data only.
+- Uploaded data lives in a private temporary schema (default 6 h TTL, set
+  `WORKSPACE_TTL_HOURS`) but there are no user accounts: it is tied to the
+  browser session.
+- No user accounts or per-user data separation; the password gate is a shared
+  secret, not authentication.
+- The live stream is simulated, not connected to a real order system.
+- Forecasts use a simple Holt trend model and are only as good as the backtest
+  says; the app shows that comparison.
+- Cost per query is not measured.
+
+## Roadmap
+
+- [x] Text-to-SQL, guardrails, read-only execution, self-correction, audit log
+- [x] KPI dashboard, follow-up memory, root-cause analysis, anomalies, forecast
+- [x] Live monitor with alerts, usage tab, 50-question benchmark, Docker, CI
+- [ ] Publish measured benchmark results
+- [x] CSV/Excel upload, auto-cleaning, auto-dashboard, report
+- [ ] Persistent per-user workspaces (needs accounts)
+- [ ] Forecast / anomalies / root cause on uploaded data
+- [ ] Authentication and roles
+- [ ] Editable metric dictionary

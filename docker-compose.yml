@@ -17,5 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    container_name: insightagent-app
+    profiles: ["app"]   # start with: docker compose --profile app up --build
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Inside the compose network the database is reachable as "db:5432".
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    ports:
+      - "8501:8501"
+
 volumes:
   postgres_data:

@@ -1,5 +1,7 @@
 ﻿import unittest
 
+import pytest
+
 from sqlalchemy import text
 
 from app.db.connection import engine
@@ -40,6 +42,7 @@ LIMIT 10;
 """
 
 
+@pytest.mark.real_data
 class TestGeneratedSQLAccuracy(unittest.TestCase):
 
     def test_generated_sql_matches_reference(self):

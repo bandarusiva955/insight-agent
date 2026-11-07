@@ -1,4 +1,4 @@
-﻿import sqlglot
+import sqlglot
 from sqlglot import exp
 
 
@@ -57,15 +57,21 @@ BLOCKED_FUNCTIONS = {
 ALLOWED_SCHEMAS = {"", "public"}
 
 
-def validate_sql(sql: str, allowed_tables=None) -> tuple[bool, str]:
+def validate_sql(
+    sql: str, allowed_tables=None, allowed_schemas=None
+) -> tuple[bool, str]:
     """
     Validate PostgreSQL SQL.
 
     Only one read-only SELECT-style statement is allowed. System catalogs
     and non-public schemas are always rejected. When allowed_tables is
     given, every table the query reads must be one of them (names defined
-    by the query's own WITH clauses are fine).
+    by the query's own WITH clauses are fine). allowed_schemas overrides the
+    permitted schema qualifiers (workspaces use {""} so even "public." is
+    rejected).
     """
+
+    permitted_schemas = ALLOWED_SCHEMAS if allowed_schemas is None else allowed_schemas
 
     if not sql or not sql.strip():
         return False, "SQL query cannot be empty."
@@ -124,7 +130,7 @@ def validate_sql(sql: str, allowed_tables=None) -> tuple[bool, str]:
             if not table_name:
                 continue
 
-            if schema_name not in ALLOWED_SCHEMAS:
+            if schema_name not in permitted_schemas:
                 return False, (
                     f"Access to schema '{schema_name}' is not allowed."
                 )

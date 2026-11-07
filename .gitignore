@@ -8,9 +8,6 @@ __pycache__/
 data/*.csv
 *.log
 data/raw/
-.env.*
-!.env.example
-.pytest_cache/
-.coverage
-htmlcov/
-data/processed/
+evaluation/results/*.json
+
+evaluation/results/state.json
