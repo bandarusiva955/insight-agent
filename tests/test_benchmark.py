@@ -182,3 +182,125 @@ def test_markdown_report_lists_failures_and_admits_missing_cost():
     assert "## Failures (1)" in report
     assert "Q01" in report
     assert "Cost per query is not measured" in report
+
+
+# ---- API trouble must not be scored as wrong SQL --------------------------
+
+from evaluation import run_eval  # noqa: E402
+
+
+def test_infrastructure_errors_are_classified():
+    quota = "gemini-3.6-flash: 429 RESOURCE_EXHAUSTED. You exceeded your current quota"
+    busy = "gemini-3.6-flash: 503 UNAVAILABLE. high demand"
+
+    assert run_eval.is_infrastructure_error(quota) and run_eval.is_quota_error(quota)
+    assert run_eval.is_infrastructure_error(busy) and not run_eval.is_quota_error(busy)
+    assert run_eval.is_infrastructure_error("[Errno 11001] getaddrinfo failed")
+    assert not run_eval.is_infrastructure_error("SQL rejected: Table 'x' is not available")
+    assert not run_eval.is_infrastructure_error(None)
+
+
+def test_evaluate_one_marks_api_errors_not_evaluated():
+    def boom(question):
+        raise RuntimeError("Gemini models are currently unavailable. 429 RESOURCE_EXHAUSTED")
+
+    def rejected(question):
+        raise ValueError("SQL rejected: nope")
+
+    assert evaluate_one(QUESTIONS[0], boom)["status"] == "not_evaluated"
+    assert evaluate_one(QUESTIONS[0], rejected)["status"] == "failed"
+
+
+def test_summary_excludes_not_evaluated_from_rates():
+    ok = {"category": "join", "executed": True, "correct": True, "attempts": 1,
+          "latency_ms": 1000, "status": "correct"}
+    skipped = {"category": "join", "executed": False, "correct": False, "attempts": 0,
+               "latency_ms": 500, "status": "not_evaluated", "error": "429"}
+
+    summary = summarise([ok] * 10 + [skipped] * 40)
+
+    assert summary["questions"] == 50
+    assert summary["evaluated"] == 10
+    assert summary["not_evaluated"] == 40
+    assert summary["correct"] == 1.0  # of the 10 evaluated, not 20% of 50
+    assert summary["by_category"]["join"]["questions"] == 10
+
+
+def test_report_flags_partial_results():
+    records = [
+        {"id": "Q01", "category": "join", "question": "a", "executed": True, "correct": True,
+         "attempts": 1, "latency_ms": 1, "status": "correct", "error": None, "sql": "x"},
+        {"id": "Q02", "category": "join", "question": "b", "executed": False, "correct": False,
+         "attempts": 0, "latency_ms": 1, "status": "not_evaluated", "error": "429", "sql": None},
+    ]
+    meta = {"run_at": "now", "model": "m", "fallback_model": "f"}
+
+    report = markdown_report(summarise(records), records, meta)
+
+    assert "Partial result" in report
+    assert "Not evaluated (1)" in report
+    assert "Failures (0)" in report
+
+
+def test_retry_only_for_transient_errors():
+    calls = {"n": 0}
+
+    def busy_then_ok(question):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("503 UNAVAILABLE high demand")
+        return FakeResult(pd.DataFrame({"x": [1]}))
+
+    def quota(question):
+        calls["n"] += 1
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    import pandas as _pd  # noqa: F401
+
+    from evaluation.run_eval import evaluate_with_retry
+
+    calls["n"] = 0
+    record = evaluate_with_retry(QUESTIONS[0], busy_then_ok, sleep=lambda s: None)
+    assert calls["n"] == 2 and record["executed"]
+
+    calls["n"] = 0
+    record = evaluate_with_retry(QUESTIONS[0], quota, sleep=lambda s: None)
+    assert calls["n"] == 1 and record["status"] == "not_evaluated"
+
+
+def test_main_stops_on_quota_keeps_evaluated_and_resumes(monkeypatch, tmp_path):
+    import json
+    import sys
+
+    import app.pipeline as pipeline
+
+    ids = [q.id for q in QUESTIONS[:6]]
+    state = {"n": 0, "quota": True}
+
+    def fake_run(question, audit=True):
+        state["n"] += 1
+        if state["quota"] and state["n"] > 2:
+            raise RuntimeError("429 RESOURCE_EXHAUSTED quota")
+        return FakeResult(pd.DataFrame({"x": [1]}))
+
+    monkeypatch.setattr(pipeline, "run_pipeline_detailed", fake_run)
+    monkeypatch.setattr(run_eval, "run_reference", lambda sql: pd.DataFrame({"n": [1]}))
+    monkeypatch.setattr(run_eval, "RESULTS_DIR", tmp_path)
+    monkeypatch.setattr(run_eval, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(run_eval.time, "sleep", lambda s: None)
+
+    monkeypatch.setattr(sys, "argv", ["run_eval", "--ids", *ids, "--delay", "0"])
+    run_eval.main()
+
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert set(saved) == set(ids[:2])                       # only evaluated ones kept
+    assert state["n"] == 2 + run_eval.STOP_AFTER_QUOTA_ERRORS  # stopped early
+
+    state.update(n=0, quota=False)
+    monkeypatch.setattr(sys, "argv", ["run_eval", "--ids", *ids, "--delay", "0", "--resume"])
+    run_eval.main()
+
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert set(saved) == set(ids)
+    assert state["n"] == 4                                  # only the 4 missing re-run
+    assert "Partial result" not in (tmp_path / "latest.md").read_text()

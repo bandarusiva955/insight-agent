@@ -9,3 +9,5 @@ data/*.csv
 *.log
 data/raw/
 evaluation/results/*.json
+
+evaluation/results/state.json
