@@ -6,6 +6,7 @@ from app.llm.narrator import narration_allowed, summarize_results
 from app.metrics import METRIC_NOTE
 from app.pipeline import run_pipeline_detailed
 from app.ui.access import budget_for_session
+from app.ui.errors import friendly_error
 from app.ui.formatting import style_results
 
 HISTORY_TURNS_SENT = 3
@@ -93,7 +94,7 @@ def render(workspace=None, state_key: str = "query_history", key_prefix: str = "
                     st.success("Analysis completed successfully!")
 
                 except Exception as error:
-                    st.error(f"Analysis failed: {error}")
+                    st.error(friendly_error(error))
 
 
     if st.session_state[state_key]:
