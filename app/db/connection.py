@@ -1,9 +1,12 @@
-﻿import os
+import os
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-load_dotenv()
+# .env wins over variables already set in the shell, so editing .env always
+# takes effect (a stale $env:... value from an old terminal session used to
+# silently override it).
+load_dotenv(override=True)
 
 
 def _build_url(user_var: str, password_var: str) -> str:
@@ -63,6 +66,11 @@ def test_connection():
         print("Database connected successfully!")
         print(result.scalar())
         print(f"Read-only query role in use: {USING_READONLY_ROLE}")
+
+    if USING_READONLY_ROLE:
+        with query_engine.connect() as connection:
+            user = connection.execute(text("SELECT current_user")).scalar()
+            print(f"Read-only connection OK as: {user}")
 
 
 if __name__ == "__main__":
