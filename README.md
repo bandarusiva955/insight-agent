@@ -13,7 +13,7 @@ Built on the public [Olist Brazilian E-commerce dataset](https://www.kaggle.com/
 | Tab | What it does |
 |---|---|
 | **Ask** | Text-to-SQL with Gemini, grounded in the live schema and explicit business definitions. Follow-up questions ("now by state") use your last 3 questions as context. Optional AI summary of the result. |
-| **My data** | **Bring your own data.** Upload a CSV or Excel file: it is cleaned automatically (snake_case names, empty rows/columns, whitespace, placeholders like `N/A`, number/date/boolean types, case variants, exact duplicates) with a full change log. You get an auto-generated dashboard, plain-English findings, questions answered by text-to-SQL, a cleaned-CSV download and a printable HTML analyst report. Outliers and missing values are flagged, never silently deleted or filled. |
+| **My data** | **Bring your own data.** Upload a CSV or Excel file: it is cleaned automatically (snake_case names, empty rows/columns, whitespace, placeholders like `N/A`, number/date/boolean types, case variants, exact duplicates) with a full change log. You get an auto-generated dashboard, plain-English findings, questions answered by text-to-SQL, an **Insights & tests** tab (statistically supported findings plus t-test / ANOVA, correlation, chi-square and A/B tests with confidence intervals, all computed in pandas/scipy rather than written by a model), a cleaned-CSV download and a printable HTML analyst report. Outliers and missing values are flagged, never silently deleted or filled. |
 | **KPI dashboard** | Revenue, orders, AOV, delivery time, on-time rate, cancel rate with date / category / state filters and deltas vs the previous period. |
 | **Root cause** | Pick a month; compares it with the previous month and attributes the change to categories, states and operations (volume vs value effect). Findings are computed deterministically; AI narration is optional. |
 | **Forecast & anomalies** | Robust (median/MAD) anomaly detection with adjustable sensitivity; Holt-trend revenue forecast that is **backtested against a naive baseline** and warns when it does not beat it. |
@@ -56,7 +56,7 @@ Results, chart, optional summary          Audit log
 
 ```
 app/
-  workspace/  ingest, cleaning, profile, store (private schema), dashboard, report
+  workspace/  ingest, cleaning, profile, store (private schema), dashboard, insights, report
   llm/        sql_generator (prompts, Gemini), narrator (opt-in summaries)
   sql/        validator (guardrails), executor (read-only)
   analytics/  kpi, anomaly, forecast, rca
@@ -172,6 +172,7 @@ figure goes in this section only after you run it and commit `latest.md`.
 - [x] Live monitor with alerts, usage tab, 50-question benchmark, Docker, CI
 - [ ] Publish measured benchmark results
 - [x] CSV/Excel upload, auto-cleaning, auto-dashboard, report
+- [x] Automatic findings and statistical tests (A/B, ANOVA, correlation, chi-square)
 - [ ] Persistent per-user workspaces (needs accounts)
 - [ ] Forecast / anomalies / root cause on uploaded data
 - [ ] Authentication and roles

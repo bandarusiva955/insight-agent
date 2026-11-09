@@ -4,7 +4,7 @@ import os
 
 import streamlit as st
 
-from app.ui import ask_tab
+from app.ui import ask_tab, insights_panel
 from app.ui.access import budget_for_session  # noqa: F401  (shared session budget)
 from app.workspace import ingest, store
 from app.workspace.cleaning import clean_dataframe
@@ -158,10 +158,15 @@ def render():
     result = state["cleaned"][name]
     profiles = workspace.tables[name]
 
-    dash, clean, ask = st.tabs(["📊 Dashboard", "🧹 Cleaning report", "💬 Ask"])
+    dash, found, clean, ask = st.tabs(
+        ["📊 Dashboard", "🔎 Insights & tests", "🧹 Cleaning report", "💬 Ask"]
+    )
 
     with dash:
         _render_dashboard(name, result, profiles, state["file"])
+
+    with found:
+        insights_panel.render(name, state["file"], result, profiles)
 
     with clean:
         _render_cleaning(result)
