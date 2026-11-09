@@ -244,3 +244,17 @@ def test_pipeline_with_workspace_and_repair(workspace, monkeypatch, seeded_db):
     assert int(result.dataframe.iloc[0, 0]) == 240
     assert "TABLE: sales" in seen["schema"]
 
+
+
+def test_dashboard_monthly_trend_for_long_date_span():
+    # A span over ~400 days switches the trend to monthly; this broke on pandas 3
+    # ("M" offset alias removed), so keep it covered.
+    frame = pd.DataFrame(
+        {
+            "order_date": pd.date_range("2024-01-01", periods=700, freq="D"),
+            "revenue": range(700),
+            "category": ["a", "b"] * 350,
+        }
+    )
+    board = build_dashboard(frame, profile_frame(frame))
+    assert board is not None

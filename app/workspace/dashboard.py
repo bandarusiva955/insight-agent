@@ -90,8 +90,8 @@ def build_dashboard(frame: pd.DataFrame, profiles: list) -> Dashboard:
         span_days = (valid[date_col].max() - valid[date_col].min()).days if len(valid) else 0
 
         if span_days >= 1:
-            freq = "D" if span_days <= 90 else ("W" if span_days <= 400 else "M")
-            period_name = {"D": "day", "W": "week", "M": "month"}[freq]
+            freq = "D" if span_days <= 90 else ("W" if span_days <= 400 else "MS")
+            period_name = {"D": "day", "W": "week", "MS": "month"}[freq]
             grouped = valid.set_index(date_col)
 
             if measure:
