@@ -50,6 +50,22 @@ def _quote(identifier: str) -> str:
     return f'"{identifier}"'
 
 
+def _copy_insert(table, connection, keys, data_iter):
+    """pandas ``to_sql`` method that bulk-loads rows with PostgreSQL COPY."""
+
+    columns = ", ".join(_quote_column(key) for key in keys)
+    target = f"{_quote(table.schema)}.{_quote(table.name)}"
+
+    with connection.connection.cursor() as cursor:
+        with cursor.copy(f"COPY {target} ({columns}) FROM STDIN") as copy:
+            for row in data_iter:
+                copy.write_row(row)
+
+
+def _quote_column(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def create_workspace(frames: dict, db_engine=None) -> Workspace:
     """Load cleaned DataFrames into a new private schema."""
 
@@ -64,8 +80,8 @@ def create_workspace(frames: dict, db_engine=None) -> Workspace:
 
         for name, frame in frames.items():
             frame.to_sql(
-                name, connection, schema=schema, index=False, method="multi",
-                chunksize=2000,
+                name, connection, schema=schema, index=False, method=_copy_insert,
+                chunksize=20000,
             )
             workspace.tables[name] = profile_frame(frame)
 
