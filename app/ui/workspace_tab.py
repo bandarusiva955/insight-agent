@@ -4,7 +4,7 @@ import os
 
 import streamlit as st
 
-from app.ui import ask_tab, insights_panel
+from app.ui import ask_tab, customers_panel, insights_panel
 from app.ui.access import budget_for_session  # noqa: F401  (shared session budget)
 from app.workspace import ingest, relations, store
 from app.workspace.cleaning import CleanResult, clean_dataframe
@@ -208,8 +208,8 @@ def render():
 
             st.caption("The 'combined' table joins everything onto the largest table. Questions can use any table.")
 
-    dash, found, clean, ask = st.tabs(
-        ["📊 Dashboard", "🔎 Insights & tests", "🧹 Cleaning report", "💬 Ask"]
+    dash, found, people, clean, ask = st.tabs(
+        ["📊 Dashboard", "🔎 Insights & tests", "👥 Customers", "🧹 Cleaning report", "💬 Ask"]
     )
 
     with dash:
@@ -217,6 +217,9 @@ def render():
 
     with found:
         insights_panel.render(name, state["file"], result, profiles)
+
+    with people:
+        customers_panel.render(name, state["file"], result, profiles)
 
     with clean:
         _render_cleaning(result)

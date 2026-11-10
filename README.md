@@ -56,7 +56,7 @@ Results, chart, optional summary          Audit log
 
 ```
 app/
-  workspace/  ingest, cleaning, profile, store (private schema), dashboard, insights, report
+  workspace/  ingest, cleaning, profile, store (private schema), relations, dashboard, insights, customers, report
   llm/        sql_generator (prompts, Gemini), narrator (opt-in summaries)
   sql/        validator (guardrails), executor (read-only)
   analytics/  kpi, anomaly, forecast, rca
@@ -172,6 +172,7 @@ figure goes in this section only after you run it and commit `latest.md`.
 - [x] Live monitor with alerts, usage tab, 50-question benchmark, Docker, CI
 - [ ] Publish measured benchmark results
 - [x] CSV/Excel upload, auto-cleaning, auto-dashboard, report
+- [x] Customer analytics: RFM segments, win-back lists and cohort retention
 - [x] Multi-file upload with automatic relationship detection and safe joins
 - [x] Automatic findings and statistical tests (A/B, ANOVA, correlation, chi-square)
 - [ ] Persistent per-user workspaces (needs accounts)
