@@ -82,7 +82,7 @@ def _upload_script():
         def getvalue(self):
             return data
 
-    st.file_uploader = lambda *args, **kwargs: FakeUpload()
+    st.file_uploader = lambda *args, **kwargs: [FakeUpload()]
 
     from app.ui import workspace_tab
 

@@ -20,6 +20,7 @@ from sqlalchemy import text
 from app.db.connection import engine
 from app.sql.validator import validate_sql
 from app.workspace.profile import profile_frame, schema_text
+from app.workspace.relations import relationship_text
 
 SCHEMA_PREFIX = "ws_"
 WORKSPACE_TTL_HOURS = int(os.getenv("WORKSPACE_TTL_HOURS", "6"))
@@ -32,15 +33,22 @@ _SCHEMA_RE = re.compile(r"^ws_[0-9a-f]{12}$")
 class Workspace:
     schema: str
     tables: dict = field(default_factory=dict)  # name -> list[ColumnProfile]
+    relationships: list = field(default_factory=list)
 
     def table_names(self) -> frozenset:
         return frozenset(self.tables)
 
     def schema_context(self, include_examples: bool = True) -> str:
-        return "\n\n".join(
+        parts = [
             schema_text(name, profiles, include_examples)
             for name, profiles in self.tables.items()
-        )
+        ]
+        links = relationship_text(self.relationships)
+
+        if links:
+            parts.append(links)
+
+        return "\n\n".join(parts)
 
 
 def _quote(identifier: str) -> str:
@@ -66,12 +74,12 @@ def _quote_column(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
-def create_workspace(frames: dict, db_engine=None) -> Workspace:
+def create_workspace(frames: dict, db_engine=None, relationships: list | None = None) -> Workspace:
     """Load cleaned DataFrames into a new private schema."""
 
     db_engine = db_engine or engine
     schema = SCHEMA_PREFIX + secrets.token_hex(6)
-    workspace = Workspace(schema=schema)
+    workspace = Workspace(schema=schema, relationships=list(relationships or []))
     stamp = datetime.now(timezone.utc).isoformat()
 
     with db_engine.begin() as connection:

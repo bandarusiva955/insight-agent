@@ -6,8 +6,8 @@ import streamlit as st
 
 from app.ui import ask_tab, insights_panel
 from app.ui.access import budget_for_session  # noqa: F401  (shared session budget)
-from app.workspace import ingest, store
-from app.workspace.cleaning import clean_dataframe
+from app.workspace import ingest, relations, store
+from app.workspace.cleaning import CleanResult, clean_dataframe
 from app.workspace.dashboard import build_dashboard
 from app.workspace.profile import profile_frame
 from app.workspace.report import build_report
@@ -27,10 +27,33 @@ def _reset():
             print(f"Workspace cleanup skipped: {error}", flush=True)
 
 
-def _load(uploaded):
-    raw = ingest.read_upload(uploaded.name, uploaded.getvalue())
-    cleaned = {name: clean_dataframe(frame) for name, frame in raw.items()}
-    cleaned = {n: r for n, r in cleaned.items() if not r.frame.empty}
+MAX_FILES = 5
+
+
+def _unique_name(name, taken):
+    candidate, number = name, 2
+
+    while candidate in taken:
+        candidate = f"{name[:36]}_{number}"
+        number += 1
+
+    return candidate
+
+
+def _load(uploads):
+    if len(uploads) > MAX_FILES:
+        raise ingest.UploadError(f"Upload at most {MAX_FILES} files at a time.")
+
+    cleaned = {}
+
+    for uploaded in uploads:
+        raw = ingest.read_upload(uploaded.name, uploaded.getvalue())
+
+        for name, frame in raw.items():
+            result = clean_dataframe(frame)
+
+            if not result.frame.empty:
+                cleaned[_unique_name(name, cleaned)] = result
 
     if not cleaned:
         raise ingest.UploadError(
@@ -38,17 +61,31 @@ def _load(uploaded):
         )
 
     frames = {name: result.frame for name, result in cleaned.items()}
+    relationships = relations.find_relationships(frames) if len(frames) > 1 else []
+    combined, fact = relations.combine(frames, relationships)
+
+    if combined is not None:
+        name = _unique_name(relations.COMBINED_NAME, cleaned)
+        joined = CleanResult(frame=combined, rows_before=len(combined), rows_after=len(combined))
+        joined.add(
+            "join",
+            f"Joined {len(relationships)} related table(s) onto '{fact}' with LEFT joins "
+            "(no rows added or removed).",
+            len(combined),
+        )
+        cleaned = {name: joined, **cleaned}
+        frames = {name: combined, **frames}
 
     try:
         store.drop_expired()
     except Exception as error:
         print(f"Expiry sweep skipped: {error}", flush=True)
 
-    workspace = store.create_workspace(frames)
+    workspace = store.create_workspace(frames, relationships=relationships)
 
     st.session_state[STATE] = {
-        "file": uploaded.name,
-        "file_id": f"{uploaded.name}:{uploaded.size}",
+        "file": ", ".join(u.name for u in uploads),
+        "file_id": "|".join(f"{u.name}:{u.size}" for u in uploads),
         "cleaned": cleaned,
         "workspace": workspace,
     }
@@ -121,20 +158,20 @@ def render():
         )
 
     uploader_key = f"ws_upload_{st.session_state.get('ws_upload_n', 0)}"
-    uploaded = st.file_uploader(
-        "Upload CSV or Excel", type=["csv", "tsv", "txt", "xlsx"], key=uploader_key
+    uploads = st.file_uploader(
+        "Upload CSV or Excel (you can select several related files)",
+        type=["csv", "tsv", "txt", "xlsx"], accept_multiple_files=True, key=uploader_key,
     )
+    file_id = "|".join(f"{u.name}:{u.size}" for u in uploads)
 
     state = st.session_state.get(STATE)
 
-    if uploaded is not None and (
-        state is None or state["file_id"] != f"{uploaded.name}:{uploaded.size}"
-    ):
+    if uploads and (state is None or state["file_id"] != file_id):
         _reset()
 
-        with st.spinner("Reading and cleaning your file..."):
+        with st.spinner("Reading and cleaning your file(s)..."):
             try:
-                _load(uploaded)
+                _load(uploads)
             except ingest.UploadError as error:
                 st.error(str(error))
                 return
@@ -144,7 +181,7 @@ def render():
 
         state = st.session_state[STATE]
 
-    if uploaded is None and state is not None:
+    if not uploads and state is not None:
         _reset()
         state = None
 
@@ -157,6 +194,19 @@ def render():
     name = names[0] if len(names) == 1 else st.selectbox("Table / sheet", names)
     result = state["cleaned"][name]
     profiles = workspace.tables[name]
+
+    if workspace.relationships:
+        with st.expander(f"🔗 {len(workspace.relationships)} relationship(s) detected between your files"):
+            for rel in workspace.relationships:
+                st.markdown(f"- {rel.describe()}")
+
+                if rel.orphan_rows:
+                    st.caption(
+                        f"  {rel.orphan_rows:,} row(s) in {rel.many_table} have a "
+                        f"{rel.many_column} that does not exist in {rel.key_table}."
+                    )
+
+            st.caption("The 'combined' table joins everything onto the largest table. Questions can use any table.")
 
     dash, found, clean, ask = st.tabs(
         ["📊 Dashboard", "🔎 Insights & tests", "🧹 Cleaning report", "💬 Ask"]
